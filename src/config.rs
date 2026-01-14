@@ -333,12 +333,14 @@ pub struct SettingsCustomButton {
 #[serde(default)]
 pub struct MediaPlayerModuleConfig {
     pub max_title_length: u32,
+    pub show_title_in_bar: bool,
 }
 
 impl Default for MediaPlayerModuleConfig {
     fn default() -> Self {
         MediaPlayerModuleConfig {
             max_title_length: 100,
+            show_title_in_bar: true,
         }
     }
 }
