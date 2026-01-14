@@ -1,4 +1,5 @@
 use crate::{
+    components::icons::{DynamicIcon, icon},
     config::{WorkspaceVisibilityMode, WorkspacesModuleConfig},
     outputs::Outputs,
     services::{
@@ -30,12 +31,43 @@ pub struct UiWorkspace {
     pub monitor: String,
     pub displayed: Displayed,
     pub windows: u16,
+    pub icons: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 struct VirtualDesktop {
     pub active: bool,
     pub windows: u16,
+    pub window_classes: Vec<String>,
+}
+
+fn resolve_workspace_icons(
+    window_classes: &[String],
+    config: &WorkspacesModuleConfig,
+) -> Vec<String> {
+    if config.window_icons.is_empty() && config.default_window_icon.is_none() {
+        return Vec::new();
+    }
+
+    let mut seen = HashMap::new();
+    for class in window_classes {
+        let class_lower = class.to_lowercase();
+
+        let icon = config
+            .window_icons
+            .iter()
+            .find(|(pattern, _)| class_lower.contains(&pattern.to_lowercase()))
+            .map(|(_, icon)| icon)
+            .or(config.default_window_icon.as_ref());
+
+        if let Some(icon) = icon {
+            seen.entry(icon).or_insert(());
+        }
+    }
+
+    let mut icons: Vec<_> = seen.into_keys().cloned().collect();
+    icons.sort();
+    icons
 }
 
 #[derive(Debug, Clone)]
@@ -92,6 +124,7 @@ fn calculate_ui_workspaces(
                     Displayed::Hidden
                 },
                 windows: w.windows,
+                icons: resolve_workspace_icons(&w.window_classes, config),
             });
         }
     }
@@ -107,12 +140,14 @@ fn calculate_ui_workspaces(
             if let Some(vdesk) = virtual_desktops.get_mut(&vdesk_id) {
                 vdesk.windows += w.windows;
                 vdesk.active = vdesk.active || is_active;
+                vdesk.window_classes.extend(w.window_classes.clone());
             } else {
                 virtual_desktops.insert(
                     vdesk_id,
                     VirtualDesktop {
                         active: is_active,
                         windows: w.windows,
+                        window_classes: w.window_classes.clone(),
                     },
                 );
             }
@@ -137,6 +172,7 @@ fn calculate_ui_workspaces(
                     Displayed::Hidden
                 },
                 windows: vdesk.windows,
+                icons: resolve_workspace_icons(&vdesk.window_classes, config),
             });
         });
     } else {
@@ -166,6 +202,7 @@ fn calculate_ui_workspaces(
                     (false, false) => Displayed::Hidden,
                 },
                 windows: w.windows,
+                icons: resolve_workspace_icons(&w.window_classes, config),
             });
         }
     }
@@ -207,6 +244,7 @@ fn calculate_ui_workspaces(
                 monitor: "".to_string(),
                 displayed: Displayed::Hidden,
                 windows: 0,
+                icons: Vec::new(),
             });
         }
     }
@@ -389,35 +427,57 @@ impl Workspaces {
                                 }
                             });
 
+                            let content: Element<'a, Message> = if w.icons.is_empty() {
+                                container(text(w.name.as_str()).size(theme.font_size.xs))
+                                    .align_x(alignment::Horizontal::Center)
+                                    .align_y(alignment::Vertical::Center)
+                                    .into()
+                            } else {
+                                let mut children: Vec<Element<'a, Message>> =
+                                    vec![text(w.name.as_str()).size(theme.font_size.xs).into()];
+                                children.extend(w.icons.iter().map(|i| {
+                                    icon(DynamicIcon(i.clone()))
+                                        .size(theme.font_size.xs)
+                                        .into()
+                                }));
+                                Row::with_children(children)
+                                    .spacing(theme.space.xxs)
+                                    .align_y(alignment::Vertical::Center)
+                                    .into()
+                            };
+
                             Some(
-                                button(
-                                    container(text(w.name.as_str()).size(theme.font_size.xs))
-                                        .align_x(alignment::Horizontal::Center)
-                                        .align_y(alignment::Vertical::Center),
-                                )
-                                .style(theme.workspace_button_style(empty, color))
-                                .padding(if w.id < 0 {
-                                    match w.displayed {
-                                        Displayed::Active => [0, theme.space.md],
-                                        Displayed::Visible => [0, theme.space.sm],
-                                        Displayed::Hidden => [0, theme.space.xs],
-                                    }
-                                } else {
-                                    [0, 0]
-                                })
-                                .on_press(if w.id > 0 {
-                                    Message::ChangeWorkspace(w.id)
-                                } else {
-                                    Message::ToggleSpecialWorkspace(w.id)
-                                })
-                                .width(match (w.id < 0, &w.displayed) {
-                                    (true, _) => Length::Shrink,
-                                    (_, Displayed::Active) => Length::Fixed(theme.space.xl as f32),
-                                    (_, Displayed::Visible) => Length::Fixed(theme.space.lg as f32),
-                                    (_, Displayed::Hidden) => Length::Fixed(theme.space.md as f32),
-                                })
-                                .height(theme.space.md)
-                                .into(),
+                                button(content)
+                                    .style(theme.workspace_button_style(empty, color))
+                                    .padding(if w.id < 0 || !w.icons.is_empty() {
+                                        match w.displayed {
+                                            Displayed::Active => [0, theme.space.md],
+                                            Displayed::Visible => [0, theme.space.sm],
+                                            Displayed::Hidden => [0, theme.space.xs],
+                                        }
+                                    } else {
+                                        [0, 0]
+                                    })
+                                    .on_press(if w.id > 0 {
+                                        Message::ChangeWorkspace(w.id)
+                                    } else {
+                                        Message::ToggleSpecialWorkspace(w.id)
+                                    })
+                                    .width(if w.id < 0 || !w.icons.is_empty() {
+                                        Length::Shrink
+                                    } else {
+                                        match w.displayed {
+                                            Displayed::Active => Length::Fixed(theme.space.xl as f32),
+                                            Displayed::Visible => {
+                                                Length::Fixed(theme.space.lg as f32)
+                                            }
+                                            Displayed::Hidden => {
+                                                Length::Fixed(theme.space.md as f32)
+                                            }
+                                        }
+                                    })
+                                    .height(theme.space.md)
+                                    .into(),
                             )
                         } else {
                             None

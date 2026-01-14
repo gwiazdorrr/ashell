@@ -199,6 +199,7 @@ fn map_state(niri: &EventStreamState) -> CompositorState {
                 }),
                 windows: 0,
                 is_special: false,
+                window_classes: Vec::new(),
             }
         })
         .collect();
