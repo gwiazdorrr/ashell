@@ -181,15 +181,32 @@ fn map_state(niri: &EventStreamState) -> CompositorState {
         .sorted_unstable()
         .collect::<Vec<_>>();
 
+    let mut workspace_classes: std::collections::HashMap<i32, Vec<String>> =
+        std::collections::HashMap::new();
+    if super::should_collect_window_classes() {
+        for win in niri.windows.windows.values() {
+            if let Some(ws_id) = win.workspace_id
+                && let Some(ws) = niri.workspaces.workspaces.get(&ws_id)
+                && let Some(app_id) = &win.app_id
+            {
+                workspace_classes
+                    .entry(ws.idx as i32)
+                    .or_default()
+                    .push(app_id.clone());
+            }
+        }
+    }
+
     let mut workspaces: Vec<CompositorWorkspace> = niri
         .workspaces
         .workspaces
         .values()
         .sorted_by_key(|w| w.idx)
         .map(|w| {
+            let id = w.idx as i32;
             CompositorWorkspace {
-                id: w.id as i32,
-                index: w.idx as i32,
+                id: id,
+                index: id,
                 name: w.name.clone().unwrap_or_else(|| w.idx.to_string()),
                 monitor: w.output.clone().unwrap_or_default(),
                 // niri does not have an output index
@@ -201,6 +218,7 @@ fn map_state(niri: &EventStreamState) -> CompositorState {
                 }),
                 windows: 0,
                 is_special: false,
+                window_classes: workspace_classes.remove(&id).unwrap_or_default(),
             }
         })
         .collect();
